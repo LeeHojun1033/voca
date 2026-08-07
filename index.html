@@ -1,0 +1,1489 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Vocabulary - 스마트 영단어장</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap');
+        body { font-family: 'Inter', 'Noto Sans KR', sans-serif; background-color: #f3f4f6; }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .loader { border-top-color: #4f46e5; animation: spinner 1.5s linear infinite; }
+        @keyframes spinner { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* 모바일 아코디언 트랜지션 */
+        .accordion-content { transition: max-height 0.3s ease-in-out, opacity 0.3s ease-in-out; max-height: 2000px; opacity: 1; overflow: hidden; }
+        .accordion-content.collapsed { max-height: 0; opacity: 0; }
+        .accordion-icon { transition: transform 0.3s ease; }
+        .accordion-icon.rotated { transform: rotate(180deg); }
+    </style>
+</head>
+<body class="text-gray-800 h-screen flex flex-col overflow-hidden">
+
+    <nav class="bg-indigo-600 text-white shadow-lg z-10 flex-shrink-0">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center space-x-3 cursor-pointer" onclick="app.switchView('home')">
+                    <i class="fa-solid fa-book-open text-2xl"></i>
+                    <span class="font-bold text-xl tracking-tight">Vocabulary</span>
+                </div>
+                <div class="flex items-center space-x-2 md:space-x-6">
+                    <button onclick="app.switchView('manage')" class="hover:text-indigo-200 transition px-2 py-2 rounded-md font-medium text-sm md:text-base flex flex-col md:flex-row items-center"><i class="fa-solid fa-folder-tree md:mr-2"></i><span class="text-[10px] md:text-base mt-1 md:mt-0">단어장 관리</span></button>
+                    <button onclick="app.switchView('test-setup')" class="hover:text-indigo-200 transition px-2 py-2 rounded-md font-medium text-sm md:text-base flex flex-col md:flex-row items-center"><i class="fa-solid fa-pen-to-square md:mr-2"></i><span class="text-[10px] md:text-base mt-1 md:mt-0">테스트</span></button>
+                    <button onclick="app.switchView('stats')" class="hover:text-indigo-200 transition px-2 py-2 rounded-md font-medium text-sm md:text-base flex flex-col md:flex-row items-center"><i class="fa-solid fa-chart-simple md:mr-2"></i><span class="text-[10px] md:text-base mt-1 md:mt-0">학습 통계</span></button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 메인 컨텐츠 영역 -->
+    <main class="flex-grow overflow-y-auto relative bg-gray-50 p-4 md:p-8" id="main-container"></main>
+
+    <!-- 로더 -->
+    <div id="global-loader" class="hidden fixed inset-0 bg-gray-900 bg-opacity-70 z-50 flex flex-col justify-center items-center backdrop-blur-sm">
+        <div class="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-24 w-24 mb-4"></div>
+        <h2 class="text-center text-white text-xl font-semibold" id="loader-text">처리 중...</h2>
+        <p class="w-1/3 text-center text-gray-300 mt-2 text-sm" id="loader-subtext">잠시만 기다려주세요.</p>
+    </div>
+
+    <!-- 기본 알림 및 오답 확인 모달 -->
+    <div id="message-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-2xl p-6 w-11/12 max-w-sm transform transition-all fade-in">
+            <h3 class="text-lg font-bold mb-2 flex items-center" id="msg-title">알림</h3>
+            <div class="text-gray-600 mb-6 text-sm max-h-60 overflow-y-auto" id="msg-content">메시지 내용</div>
+            <div class="flex justify-end items-center" id="msg-btn-container">
+                <button id="msg-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-6 rounded-lg transition-colors">확인</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 확인 모달 -->
+    <div id="confirm-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-2xl p-6 w-11/12 max-w-sm transform transition-all fade-in">
+            <h3 class="text-lg font-bold mb-2" id="confirm-title">확인</h3>
+            <p class="text-gray-600 mb-6 text-sm" id="confirm-content">진행하시겠습니까?</p>
+            <div class="flex justify-end space-x-3">
+                <button id="confirm-cancel-btn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-lg transition-colors">취소</button>
+                <button id="confirm-ok-btn" class="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors">확인</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 입력 모달 -->
+    <div id="input-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-2xl p-6 w-11/12 max-w-sm transform transition-all fade-in">
+            <h3 class="text-lg font-bold mb-2" id="input-title">입력</h3>
+            <p class="text-sm text-gray-500 mb-4" id="input-desc">내용을 입력하세요.</p>
+            <div id="input-fields" class="space-y-3 mb-6"></div>
+            <div class="flex justify-end space-x-3">
+                <button id="input-cancel-btn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-lg transition-colors">취소</button>
+                <button id="input-ok-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors">확인</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 실행 취소 토스트 -->
+    <div id="undo-toast" class="hidden fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-6 py-3 rounded-xl shadow-2xl z-50 flex items-center space-x-4 fade-in">
+        <span id="undo-text" class="text-sm">항목이 삭제되었습니다.</span>
+        <button onclick="app.executeUndo()" class="text-indigo-300 hover:text-indigo-200 font-bold text-sm uppercase tracking-wider">실행 취소</button>
+        <button onclick="app.closeUndoToast()" class="text-gray-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+
+    <!-- 대량 업로드 미리보기 모달 -->
+    <div id="preview-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-40 flex justify-center items-center backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-2xl flex flex-col w-11/12 max-w-4xl h-5/6 transform transition-all fade-in">
+            <div class="p-5 border-b border-gray-200 flex justify-between items-center bg-gray-50 rounded-t-2xl">
+                <div>
+                    <h3 class="text-xl font-bold text-gray-800">단어 검수 및 편집</h3>
+                    <p class="text-sm text-gray-500 mt-1">선택된 단어를 클라우드에 저장합니다.</p>
+                </div>
+                <button onclick="app.closePreviewModal()" class="text-gray-400 hover:text-gray-600"><i class="fa-solid fa-xmark text-2xl"></i></button>
+            </div>
+            
+            <div class="p-4 bg-indigo-50 border-b border-indigo-100 flex items-center justify-between flex-wrap gap-3">
+                 <div class="flex items-center space-x-2">
+                    <span class="text-sm font-semibold text-indigo-800">기본 저장 위치:</span>
+                    <select id="preview-target-book" class="text-sm border-gray-300 rounded-md shadow-sm py-1 pl-2 pr-6"></select>
+                    <select id="preview-target-level" class="text-sm border-gray-300 rounded-md shadow-sm py-1 pl-2 pr-6"></select>
+                 </div>
+                 <div class="text-sm font-semibold text-indigo-800">총 <span id="preview-count" class="text-indigo-600">0</span>개 단어</div>
+            </div>
+
+            <div class="flex-grow overflow-y-auto p-5 bg-gray-100">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="preview-list"></div>
+            </div>
+            <div class="p-5 border-t border-gray-200 flex justify-end space-x-3 bg-gray-50 rounded-b-2xl">
+                <button onclick="app.closePreviewModal()" class="bg-white border hover:bg-gray-50 font-semibold py-2 px-6 rounded-lg transition-colors">취소</button>
+                <button onclick="app.savePreviewWords()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-6 rounded-lg shadow-md transition-colors"><i class="fa-solid fa-check mr-2"></i> 선택된 단어 저장</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 핵심 로직 (ES Module 형식으로 Firebase 연동) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+
+        // 💡 [중요] 캡처 화면을 바탕으로 확인된 정확한 파이어베이스 데이터 경로
+        const DB_PATH = "vibeVocabDB/sharedData";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyD9-5lFDRuFt8WNPYPk_ao84XwCFysK7Cg",
+            authDomain: "word-72f17.firebaseapp.com", // 프로젝트에 맞게 수정됨
+            databaseURL: "https://word-72f17-default-rtdb.firebaseio.com",
+            projectId: "word-72f17",
+            storageBucket: "word-72f17.firebasestorage.app",
+            messagingSenderId: "868513033066",
+            appId: "1:868513033066:web:55a269ff07c351d6251313",
+            measurementId: "G-SQWY13Z16K"
+        };
+
+        const fApp = initializeApp(firebaseConfig);
+        const db = getDatabase(fApp);
+        const auth = getAuth(fApp);
+
+        window.app = {
+            localDB: { books: [], records: [], preferences: {} },
+            state: {
+                currentView: 'home',
+                activeBookId: null,
+                activeLevelId: null,
+                previewWords: [],
+                testSession: null,
+                mobileTabs: { books: true, levels: true, words: true },
+                undoData: null
+            },
+            dbRef: null,
+            unsubscribe: null,
+
+            async init() {
+                this.renderViews();
+                this.loadLocalData();
+                this.switchView('home');
+                this.setupEventListeners();
+
+                try {
+                    await signInAnonymously(auth);
+                } catch (error) {
+                    console.warn("Auth failed, but continuing to DB sync assuming public rules:", error);
+                }
+                
+                this.dbRef = ref(db, DB_PATH); 
+                this.syncRealtimeData();
+            },
+
+            loadLocalData() {
+                try {
+                    const data = localStorage.getItem('vibeVocabData');
+                    if (data) {
+                        this.localDB = JSON.parse(data);
+                        if (!this.localDB.preferences) this.localDB.preferences = {};
+                        if (!this.localDB.records) this.localDB.records = [];
+                        if (!this.localDB.books) this.localDB.books = [];
+                        
+                        if(this.localDB.preferences.lastManageBookId) this.state.activeBookId = this.localDB.preferences.lastManageBookId;
+                        if(this.localDB.preferences.lastManageLevelId) this.state.activeLevelId = this.localDB.preferences.lastManageLevelId;
+                    } else {
+                        this.createDemoData();
+                    }
+                } catch (e) {
+                    this.localDB = { books: [], records: [], preferences: {} };
+                    this.createDemoData();
+                }
+            },
+
+            async saveData() {
+                localStorage.setItem('vibeVocabData', JSON.stringify(this.localDB));
+                
+                if (this.dbRef) {
+                    try { await set(this.dbRef, this.localDB); } 
+                    catch (e) { 
+                        console.error("Firebase Sync Error", e);
+                        if(e.code === 'PERMISSION_DENIED') {
+                            this.showMessage("DB 권한 에러", "파이어베이스 Realtime Database의 규칙(Rules)이 공개(Public)로 설정되어 있는지 확인해 주세요.");
+                        }
+                    }
+                }
+            },
+
+            syncRealtimeData() {
+                if (!this.dbRef) return;
+                if (this.unsubscribe) this.unsubscribe();
+                
+                this.unsubscribe = onValue(this.dbRef, (snapshot) => {
+                    if (snapshot.exists()) {
+                        const data = snapshot.val();
+                        this.localDB = {
+                            books: data.books || [],
+                            records: data.records || [],
+                            preferences: data.preferences || {}
+                        };
+                    } else {
+                        if (this.localDB.books.length > 0 || this.localDB.records.length > 0) {
+                            this.saveData(); 
+                            return; 
+                        } else {
+                            this.localDB = { books: [], records: [], preferences: {} };
+                        }
+                    }
+                    
+                    localStorage.setItem('vibeVocabData', JSON.stringify(this.localDB));
+                    
+                    if(this.state.currentView === 'manage') {
+                        this.renderBooksList();
+                        setTimeout(() => this.renderMobileTabs(), 10);
+                        if(document.getElementById('manage-content-paper') && !document.getElementById('manage-content-paper').classList.contains('hidden')) {
+                            this.renderPaperSetup();
+                        }
+                    }
+                    if(this.state.currentView === 'stats') this.renderStats();
+                    if(this.state.currentView === 'test-setup') this.renderTestSetup();
+                }, (error) => {
+                    console.error("Realtime DB Snapshot Error:", error);
+                    if(error.code === 'PERMISSION_DENIED') {
+                        this.showMessage("DB 읽기 권한 에러", "파이어베이스 Realtime Database의 읽기 규칙이 거부되었습니다.");
+                    }
+                });
+            },
+
+            generateId() { return Math.random().toString(36).substr(2, 9) + Date.now().toString(36); },
+
+            renderViews() {
+                const container = document.getElementById('main-container');
+                container.innerHTML = `
+                    <div id="view-home" class="view-section hidden max-w-5xl mx-auto h-full flex flex-col justify-center items-center fade-in">
+                        <i class="fa-solid fa-graduation-cap text-6xl text-indigo-500 mb-6"></i>
+                        <h1 class="text-4xl md:text-5xl font-extrabold text-gray-800 mb-12 text-center">나만의 단어장을 만들고<br><span class="text-indigo-600">완벽하게 마스터하세요</span></h1>
+                        <div class="flex space-x-4">
+                            <button onclick="app.switchView('manage')" class="px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg transition-transform transform hover:-translate-y-1 text-lg"><i class="fa-solid fa-folder-plus mr-2"></i>단어장</button>
+                            <button onclick="app.switchView('test-setup')" class="px-8 py-4 bg-white hover:bg-gray-50 text-indigo-600 font-bold rounded-xl shadow-md border border-indigo-100 transition-transform transform hover:-translate-y-1 text-lg"><i class="fa-solid fa-pen mr-2"></i>단어 시험</button>
+                        </div>
+                    </div>
+
+                    <div id="view-manage" class="view-section hidden max-w-7xl mx-auto fade-in h-full flex flex-col w-full">
+                        <!-- 상단 탭 메뉴 -->
+                        <div class="mb-4 border-b border-gray-200 flex-shrink-0 w-full">
+                            <nav class="-mb-px flex space-x-8">
+                                <button id="tab-btn-manage" onclick="app.switchManageTab('manage')" class="border-indigo-500 text-indigo-600 whitespace-nowrap py-4 px-1 border-b-2 font-bold text-base md:text-lg transition-colors">단어장 관리</button>
+                                <button id="tab-btn-paper" onclick="app.switchManageTab('paper')" class="border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-base md:text-lg transition-colors">시험지 생성</button>
+                            </nav>
+                        </div>
+                        
+                        <!-- 1. 단어장 관리 -->
+                        <div id="manage-content-manage" class="grid grid-cols-1 md:grid-cols-12 gap-4 h-auto md:h-[calc(100vh-230px)] flex-grow w-full">
+                            <!-- 단어장 목록 -->
+                            <div class="md:col-span-3 bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col overflow-hidden mb-4 md:mb-0 h-auto md:h-full">
+                                <div class="p-4 bg-gray-50 border-b border-gray-200 font-semibold text-gray-700 flex justify-between items-center cursor-pointer md:cursor-default" onclick="app.toggleMobileTab('books')">
+                                    <span>📚 단어장 목록</span>
+                                    <div class="flex items-center space-x-3">
+                                        <button onclick="app.promptAddBook(event)" class="text-indigo-600 hover:text-indigo-800 text-sm"><i class="fa-solid fa-plus"></i></button>
+                                        <i class="fa-solid fa-chevron-down text-gray-400 md:hidden accordion-icon" id="icon-books"></i>
+                                    </div>
+                                </div>
+                                <div id="books-list" class="overflow-y-auto flex-grow p-2 space-y-1 no-scrollbar accordion-content w-full"></div>
+                            </div>
+                            
+                            <!-- 단계 목록 -->
+                            <div class="md:col-span-3 bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col overflow-hidden relative mb-4 md:mb-0 h-auto md:h-full">
+                                <div class="p-4 bg-gray-50 border-b border-gray-200 font-semibold text-gray-700 flex justify-between items-center cursor-pointer md:cursor-default" onclick="app.toggleMobileTab('levels')">
+                                    <span>📖 단계(Level)</span>
+                                    <div class="flex items-center space-x-3">
+                                        <button onclick="app.promptAddLevel(event)" class="text-indigo-600 hover:text-indigo-800 text-sm" id="btn-add-level" style="display:none;"><i class="fa-solid fa-plus"></i></button>
+                                        <i class="fa-solid fa-chevron-down text-gray-400 md:hidden accordion-icon" id="icon-levels"></i>
+                                    </div>
+                                </div>
+                                <div id="levels-list" class="overflow-y-auto flex-grow p-2 space-y-1 no-scrollbar accordion-content w-full">
+                                    <div class="text-center text-gray-400 mt-10 text-sm">왼쪽에서 단어장을 선택해주세요.</div>
+                                </div>
+                            </div>
+
+                            <!-- 단어 목록 -->
+                            <div class="md:col-span-6 bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col overflow-hidden relative h-auto md:h-full">
+                                <div class="p-4 bg-gray-50 border-b border-gray-200 font-semibold text-gray-700 flex flex-wrap justify-between items-center gap-2 cursor-pointer md:cursor-default" onclick="app.toggleMobileTab('words')">
+                                    <span id="word-list-title">📝 단어 목록</span>
+                                    <div class="flex items-center space-x-2">
+                                        <div id="word-tools" class="flex space-x-2" style="display:none;">
+                                            <div class="relative" id="import-dropdown-container">
+                                                <button onclick="app.toggleImportDropdown(event)" class="bg-emerald-500 hover:bg-emerald-600 text-white text-xs px-2 md:px-3 py-1.5 rounded flex items-center transition shadow-sm">
+                                                    <i class="fa-solid fa-file-import md:mr-1"></i> <span class="hidden md:inline">추가</span> <i class="fa-solid fa-chevron-down ml-1 text-[10px]"></i>
+                                                </button>
+                                                <div id="import-dropdown" class="absolute right-0 mt-1 w-48 bg-white rounded-md shadow-xl z-20 border border-gray-100 hidden">
+                                                    <label class="block px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer border-b border-gray-100 transition">
+                                                        <i class="fa-solid fa-file-excel text-green-600 w-5"></i> 엑셀/CSV 업로드
+                                                        <input type="file" id="file-upload" accept=".xlsx, .xls, .csv, .txt" class="hidden" onchange="app.handleFileUpload(event); app.closeImportDropdown();">
+                                                    </label>
+                                                    <label class="block px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer border-b border-gray-100 transition">
+                                                        <i class="fa-solid fa-camera text-blue-600 w-5"></i> 이미지(OCR) 업로드
+                                                        <input type="file" id="image-upload" accept="image/*" class="hidden" onchange="app.handleImageUpload(event); app.closeImportDropdown();">
+                                                    </label>
+                                                    <button onclick="app.downloadSampleFile(); app.closeImportDropdown();" class="w-full text-left block px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer transition">
+                                                        <i class="fa-solid fa-download text-indigo-600 w-5"></i> 양식 파일 다운로드
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <button onclick="app.promptAddWord(event)" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-2 md:px-3 py-1.5 rounded flex items-center transition shadow-sm"><i class="fa-solid fa-plus md:mr-1"></i> <span class="hidden md:inline">추가</span></button>
+                                        </div>
+                                        <i class="fa-solid fa-chevron-down text-gray-400 md:hidden accordion-icon" id="icon-words"></i>
+                                    </div>
+                                </div>
+                                <div class="accordion-content flex-grow flex flex-col w-full h-96 md:h-auto">
+                                    <div class="bg-indigo-50 px-4 py-2 text-xs text-indigo-600 flex justify-between border-b border-indigo-100 hidden flex-shrink-0" id="word-list-header">
+                                        <span class="w-5/12 font-semibold">영어 (Eng)</span>
+                                        <span class="w-5/12 font-semibold">한국어 (Kor)</span>
+                                        <span class="w-2/12 text-center font-semibold">관리</span>
+                                    </div>
+                                    <div id="words-list" class="overflow-y-auto flex-grow p-0 no-scrollbar relative w-full"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. 시험지 생성 -->
+                        <div id="manage-content-paper" class="hidden flex-grow flex-col items-center pt-2 md:pt-8 overflow-y-auto w-full">
+                            <div class="bg-white rounded-3xl shadow-sm border border-gray-200 p-6 md:p-8 w-full max-w-2xl mb-8">
+                                <h3 class="text-xl md:text-2xl font-bold text-gray-800 mb-6 flex items-center"><i class="fa-solid fa-print text-indigo-500 mr-3"></i>단어 시험지 생성 (Excel)</h3>
+                                
+                                <div class="space-y-6">
+                                    <div>
+                                        <label class="block text-sm font-semibold text-gray-700 mb-2">출제할 단어장 선택</label>
+                                        <select id="paper-book-select" onchange="app.renderPaperLevelList()" class="w-full bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-xl focus:ring-indigo-500 focus:border-indigo-500 block p-3 transition outline-none"></select>
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-semibold text-gray-700 mb-2">출제할 단계 다중 선택</label>
+                                        <div id="paper-level-list" class="bg-white border border-gray-200 rounded-xl p-4 max-h-60 overflow-y-auto"></div>
+                                    </div>
+
+                                    <div class="pt-4">
+                                        <button onclick="app.generatePaper()" class="w-full text-white bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-lg px-5 py-4 text-center shadow-lg transition transform hover:-translate-y-1 flex items-center justify-center"><i class="fa-regular fa-file-excel mr-2 text-xl"></i> 시험지 파일 다운로드</button>
+                                        <p class="text-xs text-gray-500 text-center mt-4 bg-gray-50 p-3 rounded-lg border border-gray-100">* 단어 뜻이 여러 개인 경우 <b>가장 첫 번째 뜻</b>만 문제로 출제됩니다.<br>* 학생이 영단어를 기입할 수 있는 빈 칸 영역이 자동으로 포함됩니다.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 테스트 설정 화면 -->
+                    <div id="view-test-setup" class="view-section hidden max-w-2xl mx-auto mt-10 fade-in">
+                        <div class="bg-white rounded-3xl shadow-xl border border-gray-100 p-8 md:p-10">
+                            <div class="text-center mb-8">
+                                <div class="inline-block p-4 rounded-full bg-indigo-100 text-indigo-600 mb-4"><i class="fa-solid fa-clipboard-list text-3xl"></i></div>
+                                <h2 class="text-2xl font-bold text-gray-800">단어 시험 설정</h2>
+                            </div>
+                            <div class="space-y-6">
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-2">출제 범위 (단어장 선택)</label>
+                                    <select id="test-book-select" onchange="app.saveTestPreferences(); app.renderTestLevelSelect();" class="w-full bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-xl focus:ring-indigo-500 focus:border-indigo-500 block p-3 transition"></select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-2">세부 단계 선택</label>
+                                    <select id="test-level-select" onchange="app.saveTestPreferences();" class="w-full bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-xl focus:ring-indigo-500 focus:border-indigo-500 block p-3 transition"></select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-2">문제 형태</label>
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                        <label class="relative flex items-center p-3 border border-gray-200 rounded-xl cursor-pointer hover:bg-indigo-50 transition peer-checked:border-indigo-600 peer-checked:bg-indigo-50">
+                                            <input type="radio" name="test-type" onchange="app.saveTestPreferences();" value="en2ko" class="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 focus:ring-indigo-500" checked>
+                                            <span class="ml-2 text-sm font-medium text-gray-700">영단어 제시<br><span class="text-xs text-gray-500">한국어 뜻 맞추기</span></span>
+                                        </label>
+                                        <label class="relative flex items-center p-3 border border-gray-200 rounded-xl cursor-pointer hover:bg-indigo-50 transition">
+                                            <input type="radio" name="test-type" onchange="app.saveTestPreferences();" value="ko2en" class="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 focus:ring-indigo-500">
+                                            <span class="ml-2 text-sm font-medium text-gray-700">한글 뜻 제시<br><span class="text-xs text-gray-500">영단어 맞추기</span></span>
+                                        </label>
+                                        <label class="relative flex items-center p-3 border border-gray-200 rounded-xl cursor-pointer hover:bg-indigo-50 transition">
+                                            <input type="radio" name="test-type" onchange="app.saveTestPreferences();" value="mixed" class="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 focus:ring-indigo-500">
+                                            <span class="ml-2 text-sm font-medium text-gray-700">혼합형<br><span class="text-xs text-gray-500">랜덤 출제</span></span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="pt-4">
+                                    <button onclick="app.startTest()" class="w-full text-white bg-indigo-600 hover:bg-indigo-700 focus:ring-4 focus:ring-indigo-300 font-bold rounded-xl text-lg px-5 py-4 text-center shadow-lg transition transform hover:-translate-y-1">시험 시작하기 <i class="fa-solid fa-arrow-right ml-2"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 시험 진행 화면 -->
+                    <div id="view-test-run" class="view-section hidden max-w-3xl mx-auto mt-4 md:mt-10 fade-in w-full">
+                        <div class="mb-6">
+                            <div class="flex justify-between text-sm font-semibold text-gray-600 mb-2"><span id="test-progress-text"></span><span id="test-score-live" class="text-indigo-600"></span></div>
+                            <div class="w-full bg-gray-200 rounded-full h-2.5"><div id="test-progress-bar" class="bg-indigo-600 h-2.5 rounded-full transition-all duration-300"></div></div>
+                        </div>
+                        <div class="bg-white rounded-3xl shadow-2xl overflow-hidden relative">
+                            <div class="absolute top-0 left-0 w-full h-2 bg-indigo-500"></div>
+                            <div class="p-8 md:p-12 text-center">
+                                <span id="test-q-type-badge" class="inline-block px-3 py-1 bg-gray-100 text-gray-600 text-xs font-bold rounded-full mb-4"></span>
+                                <h3 id="test-question-text" class="text-5xl md:text-6xl font-black text-gray-800 mb-8 break-words"></h3>
+                                <form id="test-form" onsubmit="app.submitTestAnswer(event)" class="max-w-md mx-auto">
+                                    <input type="text" id="test-answer-input" autocomplete="off" class="block w-full p-4 text-xl text-center border-2 rounded-2xl bg-gray-50 focus:border-indigo-500 outline-none" required>
+                                    <div id="test-feedback" class="h-8 mt-4 font-bold text-lg opacity-0 transition-opacity"></div>
+                                    <div class="mt-6 flex gap-3">
+                                        <button type="button" onclick="app.skipTestAnswer()" class="w-1/3 py-3 bg-gray-100 text-gray-600 font-bold rounded-xl">모름</button>
+                                        <button type="submit" class="w-2/3 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-md">제출하기</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 테스트 결과 화면 -->
+                    <div id="view-test-result" class="view-section hidden max-w-4xl mx-auto mt-4 fade-in">
+                        <div class="bg-white rounded-3xl shadow-xl overflow-hidden">
+                            <div class="bg-indigo-600 p-8 text-center text-white">
+                                <h2 class="text-3xl font-bold mb-2">테스트 완료! 🎉</h2>
+                                <p class="text-indigo-200" id="result-scope"></p>
+                                <div class="mt-6 inline-flex items-center justify-center w-32 h-32 rounded-full border-4 border-indigo-300 bg-white text-indigo-700 shadow-inner">
+                                    <span class="text-4xl font-black" id="result-score"></span><span class="text-xl font-bold mt-2">점</span>
+                                </div>
+                            </div>
+                            <div class="p-6 md:p-8">
+                                <h3 class="text-xl font-bold text-gray-800 mb-4 border-b pb-2"><i class="fa-solid fa-triangle-exclamation text-red-500 mr-2"></i>오답 노트</h3>
+                                <div id="result-wrong-list" class="space-y-3 max-h-96 overflow-y-auto pr-2 custom-scrollbar"></div>
+                                <div id="result-perfect-msg" class="hidden text-center py-10 text-emerald-600 font-bold text-lg">완벽합니다! 틀린 문제가 없습니다.</div>
+                                <div class="mt-8 flex justify-center space-x-4">
+                                    <button onclick="app.switchView('stats')" class="px-6 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl">학습 통계 보기</button>
+                                    <button onclick="app.switchView('test-setup')" class="px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow">다시 시험보기</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 통계 탭 화면 -->
+                    <div id="view-stats" class="view-section hidden max-w-5xl mx-auto fade-in">
+                        <div class="mb-8">
+                            <h2 class="text-3xl font-bold text-gray-800"><i class="fa-solid fa-chart-line text-indigo-600 mr-2"></i>나의 학습 통계</h2>
+                        </div>
+                        
+                        <div class="grid grid-cols-3 gap-2 md:gap-6 mb-8">
+                            <div class="bg-white p-2 md:p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row items-center text-center md:text-left">
+                                <div class="p-2 md:p-4 rounded-full bg-blue-100 text-blue-600 mb-1 md:mb-0 md:mr-4"><i class="fa-solid fa-file-signature text-lg md:text-2xl"></i></div>
+                                <div><p class="text-[10px] md:text-sm text-gray-500 font-medium">총 응시 횟수</p><p class="text-base md:text-2xl font-bold text-gray-800" id="stat-total-tests">0회</p></div>
+                            </div>
+                            <div class="bg-white p-2 md:p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row items-center text-center md:text-left">
+                                <div class="p-2 md:p-4 rounded-full bg-emerald-100 text-emerald-600 mb-1 md:mb-0 md:mr-4"><i class="fa-solid fa-bullseye text-lg md:text-2xl"></i></div>
+                                <div><p class="text-[10px] md:text-sm text-gray-500 font-medium">평균 점수</p><p class="text-base md:text-2xl font-bold text-gray-800" id="stat-avg-score">0점</p></div>
+                            </div>
+                            <div class="bg-white p-2 md:p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row items-center text-center md:text-left">
+                                <div class="p-2 md:p-4 rounded-full bg-rose-100 text-rose-600 mb-1 md:mb-0 md:mr-4"><i class="fa-solid fa-brain text-lg md:text-2xl"></i></div>
+                                <div><p class="text-[10px] md:text-sm text-gray-500 font-medium">학습한 단어 수</p><p class="text-base md:text-2xl font-bold text-gray-800" id="stat-total-words">0개</p></div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
+                            <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center flex-wrap gap-4">
+                                <span class="font-bold text-gray-700">최근 응시 기록</span>
+                            </div>
+                            <div class="overflow-x-auto flex-grow min-h-[300px]">
+                                <table class="w-full text-sm text-left text-gray-500">
+                                    <thead class="text-xs text-gray-700 uppercase bg-gray-100">
+                                        <tr>
+                                            <th scope="col" class="px-2 md:px-6 py-3 whitespace-nowrap">응시 일시</th>
+                                            <th scope="col" class="px-2 md:px-6 py-3 whitespace-nowrap">출제 범위</th>
+                                            <th scope="col" class="px-2 md:px-6 py-3 whitespace-nowrap text-center">문제 유형</th>
+                                            <th scope="col" class="px-2 md:px-6 py-3 whitespace-nowrap text-center">점수</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="stats-history-list"></tbody>
+                                </table>
+                                <div id="stats-empty-msg" class="text-center py-10 text-gray-400 hidden">기록이 없습니다.</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            },
+
+            switchView(viewId) {
+                document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
+                const view = document.getElementById(`view-${viewId}`);
+                if (view) {
+                    view.classList.remove('hidden');
+                    this.state.currentView = viewId;
+                    if(viewId === 'manage') { 
+                        this.switchManageTab('manage');
+                        this.renderBooksList(); 
+                        setTimeout(() => this.renderMobileTabs(), 10); 
+                    }
+                    if(viewId === 'test-setup') this.renderTestSetup();
+                    if(viewId === 'stats') this.renderStats();
+                }
+            },
+            
+            switchManageTab(tabId) {
+                const btnManage = document.getElementById('tab-btn-manage');
+                const btnPaper = document.getElementById('tab-btn-paper');
+                const contentManage = document.getElementById('manage-content-manage');
+                const contentPaper = document.getElementById('manage-content-paper');
+                
+                if(tabId === 'manage') {
+                    btnManage.className = "border-indigo-500 text-indigo-600 whitespace-nowrap py-4 px-1 border-b-2 font-bold text-base md:text-lg transition-colors";
+                    btnPaper.className = "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-base md:text-lg transition-colors";
+                    contentManage.classList.remove('hidden');
+                    contentPaper.classList.add('hidden');
+                    contentPaper.classList.remove('flex');
+                } else {
+                    btnPaper.className = "border-indigo-500 text-indigo-600 whitespace-nowrap py-4 px-1 border-b-2 font-bold text-base md:text-lg transition-colors";
+                    btnManage.className = "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-base md:text-lg transition-colors";
+                    contentManage.classList.add('hidden');
+                    contentPaper.classList.remove('hidden');
+                    contentPaper.classList.add('flex');
+                    this.renderPaperSetup();
+                }
+            },
+
+            renderPaperSetup() {
+                const bookSel = document.getElementById('paper-book-select');
+                if(!bookSel) return;
+                bookSel.innerHTML = '';
+                
+                if(this.localDB.books.length === 0) {
+                    bookSel.innerHTML = '<option disabled selected>단어장이 없습니다.</option>';
+                    document.getElementById('paper-level-list').innerHTML = '<div class="text-center text-gray-400 py-4 text-sm">먼저 단어장을 생성하고 단어를 등록하세요.</div>';
+                    return;
+                }
+                
+                this.localDB.books.forEach(b => bookSel.options.add(new Option(b.title, b.id)));
+                this.renderPaperLevelList();
+            },
+            
+            renderPaperLevelList() {
+                const bookId = document.getElementById('paper-book-select').value;
+                const list = document.getElementById('paper-level-list');
+                if(!list) return;
+                list.innerHTML = '';
+                
+                const book = this.localDB.books.find(b => b.id === bookId);
+                if(!book || !book.levels || book.levels.length === 0) {
+                    list.innerHTML = '<div class="text-center text-gray-400 py-4 text-sm">선택한 단어장에 등록된 단계가 없습니다.</div>';
+                    return;
+                }
+                
+                list.innerHTML += `
+                    <label class="flex items-center space-x-3 mb-3 p-3 bg-indigo-50 rounded-lg cursor-pointer border border-indigo-100 transition hover:bg-indigo-100">
+                        <input type="checkbox" onchange="app.toggleAllPaperLevels(this.checked)" class="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer">
+                        <span class="font-bold text-indigo-800">모든 단계 전체 선택</span>
+                    </label>
+                `;
+
+                const grid = document.createElement('div');
+                grid.className = "grid grid-cols-2 md:grid-cols-3 gap-3";
+                
+                book.levels.forEach(l => {
+                    const wordCount = l.words ? l.words.length : 0;
+                    grid.innerHTML += `
+                        <label class="flex items-center space-x-2 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition">
+                            <input type="checkbox" name="paper-levels" value="${l.id}" class="paper-level-cb w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer">
+                            <span class="text-sm text-gray-700 truncate font-medium">${l.title} <span class="text-xs text-gray-400 ml-1">(${wordCount})</span></span>
+                        </label>
+                    `;
+                });
+                list.appendChild(grid);
+            },
+            
+            toggleAllPaperLevels(checked) {
+                document.querySelectorAll('.paper-level-cb').forEach(cb => cb.checked = checked);
+            },
+            
+            generatePaper() {
+                const bookId = document.getElementById('paper-book-select').value;
+                const book = this.localDB.books.find(b => b.id === bookId);
+                if(!book) return this.showMessage("오류", "단어장을 찾을 수 없습니다.");
+                
+                const checkedLevels = Array.from(document.querySelectorAll('.paper-level-cb:checked')).map(cb => cb.value);
+                if(checkedLevels.length === 0) return this.showMessage("알림", "출제할 단계를 1개 이상 선택해주세요.");
+                
+                let wordsToExport = [];
+                book.levels.forEach(l => {
+                    if(checkedLevels.includes(l.id) && l.words) {
+                        wordsToExport = wordsToExport.concat(l.words);
+                    }
+                });
+                
+                if(wordsToExport.length === 0) return this.showMessage("알림", "선택한 단계에 단어가 하나도 없습니다.");
+                
+                wordsToExport.sort(() => Math.random() - 0.5);
+                
+                const exportData = [];
+                exportData.push(["번호", "문제 (한국어 뜻)", "정답 기입란 (영단어)"]);
+                
+                wordsToExport.forEach((w, idx) => {
+                    const firstMeaning = w.ko.split(/[,/]/)[0].trim();
+                    exportData.push([idx + 1, firstMeaning, ""]); 
+                });
+                
+                const ws = XLSX.utils.aoa_to_sheet(exportData);
+                ws['!cols'] = [{wch: 8}, {wch: 40}, {wch: 30}];
+                
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "단어시험지");
+                
+                const dateStr = new Date().toISOString().slice(0,10).replace(/-/g, "");
+                XLSX.writeFile(wb, `단어시험지_${book.title}_${dateStr}.xlsx`);
+                
+                this.showMessage("시험지 생성 완료", "선택하신 단어의 첫 번째 뜻으로 구성된 엑셀 시험지 파일이 다운로드되었습니다.");
+            },
+
+            setupEventListeners() {
+                document.addEventListener('click', (e) => {
+                    const dropdown = document.getElementById('import-dropdown');
+                    const container = document.getElementById('import-dropdown-container');
+                    if (dropdown && !dropdown.classList.contains('hidden') && container && !container.contains(e.target)) {
+                        this.closeImportDropdown();
+                    }
+                });
+                window.addEventListener('resize', () => { if(this.state.currentView === 'manage') this.renderMobileTabs(); });
+            },
+
+            showMessage(title, content, callback = null) {
+                document.getElementById('msg-title').innerHTML = title;
+                document.getElementById('msg-content').innerHTML = content;
+                const modal = document.getElementById('message-modal');
+                const btn = document.getElementById('msg-btn');
+                modal.classList.remove('hidden');
+                
+                const newBtn = btn.cloneNode(true);
+                btn.parentNode.replaceChild(newBtn, btn);
+                newBtn.addEventListener('click', () => {
+                    modal.classList.add('hidden');
+                    if(callback) callback();
+                });
+            },
+            
+            showConfirm(title, content, onOk) {
+                document.getElementById('confirm-title').innerText = title;
+                document.getElementById('confirm-content').innerText = content;
+                const modal = document.getElementById('confirm-modal');
+                const btnOk = document.getElementById('confirm-ok-btn');
+                const btnCancel = document.getElementById('confirm-cancel-btn');
+                modal.classList.remove('hidden');
+                
+                const handleOk = () => { cleanup(); onOk(); };
+                const handleCancel = () => { cleanup(); };
+                const cleanup = () => {
+                    modal.classList.add('hidden');
+                    btnOk.removeEventListener('click', handleOk);
+                    btnCancel.removeEventListener('click', handleCancel);
+                };
+                btnOk.addEventListener('click', handleOk);
+                btnCancel.addEventListener('click', handleCancel);
+            },
+            
+            showInputModal(title, desc, fields, onOk) {
+                document.getElementById('input-title').innerText = title;
+                document.getElementById('input-desc').innerText = desc;
+                const fieldsContainer = document.getElementById('input-fields');
+                fieldsContainer.innerHTML = '';
+                
+                const inputs = [];
+                fields.forEach((f, index) => {
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.placeholder = f.placeholder;
+                    if(f.value) input.value = f.value;
+                    input.className = "w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-200 transition shadow-sm outline-none";
+                    input.addEventListener('keypress', (e) => {
+                        if(e.key === 'Enter') {
+                            e.preventDefault();
+                            if(index < inputs.length - 1) inputs[index+1].focus();
+                            else document.getElementById('input-ok-btn').click();
+                        }
+                    });
+                    fieldsContainer.appendChild(input);
+                    inputs.push(input);
+                });
+                
+                const modal = document.getElementById('input-modal');
+                const btnOk = document.getElementById('input-ok-btn');
+                const btnCancel = document.getElementById('input-cancel-btn');
+                modal.classList.remove('hidden');
+                setTimeout(() => inputs[0].focus(), 100);
+                
+                const handleOk = () => {
+                    const values = inputs.map(i => i.value.trim());
+                    if(values.some(v => !v)) return this.showMessage("오류", "모든 항목을 입력해주세요.");
+                    cleanup();
+                    onOk(values);
+                };
+                const handleCancel = () => { cleanup(); };
+                const cleanup = () => {
+                    modal.classList.add('hidden');
+                    btnOk.removeEventListener('click', handleOk);
+                    btnCancel.removeEventListener('click', handleCancel);
+                };
+                
+                btnOk.addEventListener('click', handleOk);
+                btnCancel.addEventListener('click', handleCancel);
+            },
+
+            showUndoToast(message, type, data) {
+                const toast = document.getElementById('undo-toast');
+                document.getElementById('undo-text').innerText = message;
+                if (this.state.undoData && this.state.undoData.timeout) clearTimeout(this.state.undoData.timeout);
+                this.state.undoData = { type, data, timeout: setTimeout(() => this.closeUndoToast(), 7000) };
+                toast.classList.remove('hidden');
+            },
+            closeUndoToast() {
+                document.getElementById('undo-toast').classList.add('hidden');
+                this.state.undoData = null;
+            },
+            
+            async executeUndo() {
+                if(!this.state.undoData) return;
+                const { type, data } = this.state.undoData;
+                
+                if(type === 'book') {
+                    this.localDB.books.push(data);
+                    this.state.activeBookId = data.id;
+                } else if(type === 'level') {
+                    const book = this.localDB.books.find(b => b.id === data.bookId);
+                    if(book) { book.levels.push(data.level); this.state.activeLevelId = data.level.id; }
+                } else if(type === 'record') {
+                    this.localDB.records.push(data);
+                }
+                
+                await this.saveData();
+                this.closeUndoToast();
+            },
+
+            showLoader(text, subtext = '') {
+                document.getElementById('loader-text').innerText = text;
+                document.getElementById('loader-subtext').innerText = subtext;
+                document.getElementById('global-loader').classList.remove('hidden');
+            },
+            hideLoader() { document.getElementById('global-loader').classList.add('hidden'); },
+
+            toggleMobileTab(tabName) {
+                if(window.innerWidth >= 768) return;
+                this.state.mobileTabs[tabName] = !this.state.mobileTabs[tabName];
+                this.renderMobileTabs();
+            },
+            renderMobileTabs() {
+                if(window.innerWidth >= 768) {
+                    ['books', 'levels', 'words'].forEach(tab => {
+                        document.getElementById(`${tab}-list`).classList.remove('collapsed');
+                        document.getElementById(`icon-${tab}`).classList.remove('rotated');
+                    });
+                    return;
+                }
+                ['books', 'levels', 'words'].forEach(tab => {
+                    const list = document.getElementById(`${tab}-list`);
+                    const icon = document.getElementById(`icon-${tab}`);
+                    if(this.state.mobileTabs[tab]) { list.classList.remove('collapsed'); icon.classList.add('rotated'); }
+                    else { list.classList.add('collapsed'); icon.classList.remove('rotated'); }
+                });
+            },
+
+            renderBooksList() {
+                const list = document.getElementById('books-list');
+                list.innerHTML = '';
+                if(this.localDB.books.length === 0) { list.innerHTML = '<div class="text-center text-gray-400 text-sm py-4">단어장이 없습니다.</div>'; return; }
+                
+                this.localDB.books.forEach(book => {
+                    const isActive = this.state.activeBookId === book.id;
+                    const div = document.createElement('div');
+                    div.className = `p-3 rounded-lg cursor-pointer flex justify-between items-center transition ${isActive ? 'bg-indigo-100 border border-indigo-200' : 'hover:bg-gray-100'}`;
+                    div.innerHTML = `
+                        <div class="flex-grow font-medium truncate ${isActive ? 'text-indigo-800' : 'text-gray-700'}" onclick="app.selectBook('${book.id}')">
+                            <i class="fa-solid ${isActive ? 'fa-folder-open' : 'fa-folder'} mr-2 text-indigo-400"></i>${book.title}
+                        </div>
+                        <button onclick="app.deleteBook('${book.id}')" class="text-gray-400 hover:text-red-500 p-2"><i class="fa-solid fa-trash-can"></i></button>
+                    `;
+                    list.appendChild(div);
+                });
+                
+                if(!this.localDB.books.find(b => b.id === this.state.activeBookId)) { this.state.activeBookId = null; this.state.activeLevelId = null; }
+                this.renderLevelsList();
+            },
+            async selectBook(bookId) {
+                this.state.activeBookId = bookId;
+                this.state.activeLevelId = null;
+                this.localDB.preferences.lastManageBookId = bookId;
+                this.localDB.preferences.lastManageLevelId = null;
+                
+                if(window.innerWidth < 768) { this.state.mobileTabs.books = false; this.state.mobileTabs.levels = true; }
+                await this.saveData(); 
+            },
+            promptAddBook(event) {
+                if(event) event.stopPropagation();
+                this.showInputModal("단어장 추가", "새 단어장 이름을 입력하세요.", [{placeholder: "예: 수능 영단어"}], async (values) => {
+                    const newBook = { id: this.generateId(), title: values[0], levels: [] };
+                    this.localDB.books.push(newBook);
+                    this.state.activeBookId = newBook.id;
+                    this.localDB.preferences.lastManageBookId = newBook.id;
+                    await this.saveData();
+                });
+            },
+            deleteBook(id) {
+                this.showConfirm("단어장 삭제", "단어장을 삭제하면 하위 데이터가 모두 삭제됩니다.", async () => {
+                    const bookToDel = this.localDB.books.find(b => b.id === id);
+                    this.localDB.books = this.localDB.books.filter(b => b.id !== id);
+                    if(this.state.activeBookId === id) { this.state.activeBookId = null; this.state.activeLevelId = null; }
+                    await this.saveData();
+                    this.showUndoToast(`'${bookToDel.title}' 단어장이 삭제되었습니다.`, 'book', bookToDel);
+                });
+            },
+
+            renderLevelsList() {
+                const list = document.getElementById('levels-list');
+                const btnAdd = document.getElementById('btn-add-level');
+                list.innerHTML = '';
+                
+                if(!this.state.activeBookId) {
+                    btnAdd.style.display = 'none';
+                    list.innerHTML = '<div class="text-center text-gray-400 mt-10 text-sm">단어장을 선택해주세요.</div>';
+                    this.renderWordsList(); return;
+                }
+                
+                btnAdd.style.display = 'inline-block';
+                const book = this.localDB.books.find(b => b.id === this.state.activeBookId);
+                
+                if(!book.levels || book.levels.length === 0) { list.innerHTML = '<div class="text-center text-gray-400 text-sm py-4">단계가 없습니다.</div>'; } 
+                else {
+                    book.levels.forEach(level => {
+                        const isActive = this.state.activeLevelId === level.id;
+                        const div = document.createElement('div');
+                        div.className = `p-3 rounded-lg cursor-pointer flex justify-between items-center transition ${isActive ? 'bg-indigo-100 border border-indigo-200' : 'hover:bg-gray-100'}`;
+                        div.innerHTML = `
+                            <div class="flex-grow font-medium text-sm truncate ${isActive ? 'text-indigo-800' : 'text-gray-700'}" onclick="app.selectLevel('${level.id}')">
+                                <i class="fa-solid fa-bookmark mr-2 ${isActive ? 'text-indigo-500' : 'text-gray-400'}"></i>${level.title}
+                                <span class="ml-2 text-xs text-gray-500 bg-white px-2 py-0.5 rounded-full border">${level.words ? level.words.length : 0}개</span>
+                            </div>
+                            <button onclick="app.deleteLevel('${level.id}')" class="text-gray-400 hover:text-red-500 p-2"><i class="fa-solid fa-xmark"></i></button>
+                        `;
+                        list.appendChild(div);
+                    });
+                }
+                this.renderWordsList();
+            },
+            async selectLevel(levelId) {
+                this.state.activeLevelId = levelId;
+                this.localDB.preferences.lastManageLevelId = levelId;
+                if(window.innerWidth < 768) { this.state.mobileTabs.levels = false; this.state.mobileTabs.words = true; }
+                await this.saveData();
+            },
+            promptAddLevel(event) {
+                if(event) event.stopPropagation();
+                this.showInputModal("단계 추가", "새 단계 이름을 입력하세요.", [{placeholder: "예: Day 1"}], async (values) => {
+                    const book = this.localDB.books.find(b => b.id === this.state.activeBookId);
+                    if(book) {
+                        const newLevel = { id: this.generateId(), title: values[0], words: [] };
+                        if(!book.levels) book.levels = [];
+                        book.levels.push(newLevel);
+                        this.state.activeLevelId = newLevel.id;
+                        this.localDB.preferences.lastManageLevelId = newLevel.id;
+                        await this.saveData();
+                    }
+                });
+            },
+            deleteLevel(id) {
+                this.showConfirm("단계 삭제", "이 단계의 모든 단어가 삭제됩니다.", async () => {
+                    const book = this.localDB.books.find(b => b.id === this.state.activeBookId);
+                    if(book) {
+                        const levelToDel = book.levels.find(l => l.id === id);
+                        book.levels = book.levels.filter(l => l.id !== id);
+                        if(this.state.activeLevelId === id) this.state.activeLevelId = null;
+                        await this.saveData();
+                        this.showUndoToast(`'${levelToDel.title}' 단계가 삭제되었습니다.`, 'level', {bookId: book.id, level: levelToDel});
+                    }
+                });
+            },
+
+            renderWordsList() {
+                const list = document.getElementById('words-list');
+                const title = document.getElementById('word-list-title');
+                const tools = document.getElementById('word-tools');
+                const header = document.getElementById('word-list-header');
+                
+                if(!this.state.activeLevelId) {
+                    title.innerHTML = '📝 단어 목록'; tools.style.display = 'none'; header.classList.add('hidden');
+                    list.innerHTML = '<div class="text-center text-gray-400 mt-20 text-sm">단계를 선택해주세요.</div>'; return;
+                }
+                
+                const book = this.localDB.books.find(b => b.id === this.state.activeBookId);
+                if (!book || !book.levels) { 
+                    list.innerHTML = '<div class="text-center text-gray-400 mt-20 text-sm">단어가 없습니다.</div>'; return; 
+                }
+                
+                const level = book.levels.find(l => l.id === this.state.activeLevelId);
+                if (!level) { 
+                    list.innerHTML = '<div class="text-center text-gray-400 mt-20 text-sm">단어가 없습니다.</div>'; return; 
+                }
+                
+                title.innerHTML = `📝 단어 목록 <span class="text-xs md:text-sm text-gray-500 ml-1">(${level.title})</span>`;
+                tools.style.display = 'flex'; header.classList.remove('hidden');
+                
+                list.innerHTML = '';
+                if(!level.words || level.words.length === 0) {
+                    list.innerHTML = '<div class="text-center text-gray-400 mt-20 text-sm">단어가 없습니다.</div>'; return;
+                }
+
+                level.words.forEach((word) => {
+                    const div = document.createElement('div');
+                    div.className = "flex justify-between items-center px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition cursor-pointer hover:text-indigo-600";
+                    div.title = "클릭하여 수정";
+                    div.onclick = (e) => { if(!e.target.closest('button')) this.editWord(word.id); };
+                    div.innerHTML = `
+                        <div class="w-5/12 font-bold text-sm md:text-base break-words pr-2">${word.en}</div>
+                        <div class="w-5/12 text-sm md:text-base break-words pr-2 text-gray-600">${word.ko}</div>
+                        <div class="w-2/12 text-center">
+                            <button onclick="app.deleteWord('${word.id}')" class="text-gray-400 hover:text-red-500 p-2"><i class="fa-solid fa-trash-can"></i></button>
+                        </div>
+                    `;
+                    list.appendChild(div);
+                });
+            },
+            promptAddWord(event) {
+                if(event) event.stopPropagation();
+                this.showInputModal("단어 추가", "영단어와 뜻을 입력하세요.", [{placeholder: "영단어 (예: apple)"}, {placeholder: "한국어 뜻 (예: 사과)"}], async (values) => {
+                    const book = this.localDB.books.find(b => b.id === this.state.activeBookId);
+                    if (!book || !book.levels) return;
+                    
+                    const level = book.levels.find(l => l.id === this.state.activeLevelId);
+                    if(level) {
+                        if(!level.words) level.words = [];
+                        level.words.push({ id: this.generateId(), en: values[0], ko: values[1] });
+                        await this.saveData();
+                    }
+                });
+            },
+            editWord(wordId) {
+                const book = this.localDB.books.find(b => b.id === this.state.activeBookId);
+                if (!book || !book.levels) return;
+                
+                const level = book.levels.find(l => l.id === this.state.activeLevelId);
+                if(!level || !level.words) return;
+                
+                const word = level.words.find(w => w.id === wordId);
+                if(!word) return;
+                
+                this.showInputModal("단어 수정", "영단어와 뜻을 수정하세요.", [{placeholder: "영단어", value: word.en}, {placeholder: "한국어 뜻", value: word.ko}], async (values) => {
+                    word.en = values[0]; word.ko = values[1];
+                    await this.saveData();
+                });
+            },
+            async deleteWord(wordId) {
+                const book = this.localDB.books.find(b => b.id === this.state.activeBookId);
+                if (!book || !book.levels) return;
+                
+                const level = book.levels.find(l => l.id === this.state.activeLevelId);
+                if(level && level.words) {
+                    level.words = level.words.filter(w => w.id !== wordId);
+                    await this.saveData();
+                }
+            },
+
+            toggleImportDropdown(e) { if(e) e.stopPropagation(); document.getElementById('import-dropdown')?.classList.toggle('hidden'); },
+            closeImportDropdown() { document.getElementById('import-dropdown')?.classList.add('hidden'); },
+            downloadSampleFile() {
+                const csvContent = "\uFEFF단어장,단계,영어,한국어\n기본 단어장,1단계,apple,사과\n기본 단어장,1단계,banana,바나나\n토익 단어,Day 1,book,책\n,,water,물";
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(blob);
+                link.download = "단어업로드양식.csv";
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                this.showMessage("안내", "양식 파일(CSV)이 다운로드되었습니다. A열(단어장)과 B열(단계)을 지정하면 단어장과 단계가 자동으로 생성됩니다.");
+            },
+            async handleFileUpload(event) {
+                const file = event.target.files[0];
+                if(!file) return;
+                this.showLoader('파일 분석 중...', '엑셀/CSV 데이터를 파싱하고 있습니다.');
+                event.target.value = '';
+                
+                try {
+                    const data = await file.arrayBuffer();
+                    const workbook = XLSX.read(data);
+                    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const json = XLSX.utils.sheet_to_json(worksheet, {header: 1});
+                    
+                    const parsedWords = [];
+                    let is4ColFormat = false;
+                    if(json.length > 0 && json[0][0] && String(json[0][0]).includes('단어장')) {
+                        is4ColFormat = true;
+                    }
+                    
+                    json.forEach((row, i) => {
+                        if (i === 0 && (is4ColFormat || (row[0] && String(row[0]).toLowerCase().includes('english')) || (row[1] && String(row[1]).includes('뜻')))) return;
+                        
+                        let bookName = '', levelName = '', en = '', ko = '';
+
+                        if (is4ColFormat) {
+                            bookName = String(row[0] || '').trim();
+                            levelName = String(row[1] || '').trim();
+                            en = String(row[2] || '').trim();
+                            ko = String(row[3] || '').trim();
+                        } else if (row.length >= 2) {
+                            en = String(row[0] || '').trim();
+                            ko = String(row[1] || '').trim();
+                        }
+
+                        if(en && ko) {
+                            parsedWords.push({ bookName, levelName, en, ko, selected: true, id: 'temp_' + i });
+                        }
+                    });
+                    
+                    if(parsedWords.length > 0) this.openPreviewModal(parsedWords);
+                    else this.showMessage("분석 실패", "유효한 단어 데이터를 찾을 수 없습니다.");
+                } catch(err) {
+                    this.showMessage("오류", "파일을 읽는 중 오류가 발생했습니다.");
+                } finally { this.hideLoader(); }
+            },
+            async handleImageUpload(event) {
+                const file = event.target.files[0];
+                if(!file) return;
+                this.showLoader('이미지 분석 중(OCR)...', '네트워크 상태에 따라 10초 이상 소요될 수 있습니다.');
+                event.target.value = ''; 
+                
+                try {
+                    const result = await Tesseract.recognize(file, 'eng+kor', {
+                        logger: m => { if(m.status === 'recognizing text') document.getElementById('loader-subtext').innerText = `텍스트 인식 중... (${Math.round(m.progress * 100)}%)`; }
+                    });
+                    
+                    const text = result.data.text;
+                    const parsedWords = this.parseOcrText(text);
+                    
+                    if(parsedWords.length > 0) this.openPreviewModal(parsedWords);
+                    else this.showMessage("분석 실패", "이미지에서 영단어 패턴을 찾지 못했습니다.");
+                } catch(err) {
+                    this.showMessage("오류", "OCR 분석 중 오류가 발생했습니다.");
+                } finally { this.hideLoader(); }
+            },
+            parseOcrText(rawText) {
+                const parsed = [];
+                const lines = rawText.split('\n');
+                let tempId = 0;
+                lines.forEach(line => {
+                    const trimmed = line.trim();
+                    if(!trimmed) return;
+                    const separators = /\t| {2,}|-|:|==?/;
+                    const parts = trimmed.split(separators).map(s => s.trim()).filter(s => s.length > 0);
+                    if(parts.length >= 2 && /[a-zA-Z]/.test(parts[0]) && /[가-힣]/.test(parts.slice(1).join(' '))) {
+                        parsed.push({ en: parts[0], ko: parts.slice(1).join(' '), selected: true, id: 'temp_' + tempId++ }); return;
+                    }
+                    const match = trimmed.match(/([a-zA-Z\s]+)[^가-힣a-zA-Z]*([가-힣\s]+)/);
+                    if(match && match[1].trim() && match[2].trim()) {
+                        parsed.push({ en: match[1].trim(), ko: match[2].trim(), selected: true, id: 'temp_' + tempId++ });
+                    }
+                });
+                return parsed;
+            },
+
+            openPreviewModal(words) {
+                this.state.previewWords = words;
+                const modal = document.getElementById('preview-modal');
+                const bookSel = document.getElementById('preview-target-book');
+                const levelSel = document.getElementById('preview-target-level');
+                bookSel.innerHTML = ''; levelSel.innerHTML = '';
+                
+                this.localDB.books.forEach(b => bookSel.options.add(new Option(b.title, b.id)));
+                if(this.state.activeBookId) bookSel.value = this.state.activeBookId;
+                
+                const updateLevelSelect = () => {
+                    levelSel.innerHTML = '';
+                    const b = this.localDB.books.find(x => x.id === bookSel.value);
+                    if(b && b.levels) b.levels.forEach(l => levelSel.options.add(new Option(l.title, l.id)));
+                    if(this.state.activeLevelId && b.id === this.state.activeBookId) levelSel.value = this.state.activeLevelId;
+                };
+                
+                bookSel.addEventListener('change', updateLevelSelect);
+                updateLevelSelect();
+                
+                this.renderPreviewList();
+                modal.classList.remove('hidden');
+            },
+            closePreviewModal() { document.getElementById('preview-modal').classList.add('hidden'); this.state.previewWords = []; },
+            renderPreviewList() {
+                const list = document.getElementById('preview-list');
+                const countSpan = document.getElementById('preview-count');
+                list.innerHTML = ''; let selectedCount = 0;
+                
+                this.state.previewWords.forEach((w, index) => {
+                    if(w.selected) selectedCount++;
+                    const div = document.createElement('div');
+                    div.className = `flex bg-white border ${w.selected ? 'border-indigo-300 ring-1 shadow-sm' : 'border-gray-200 opacity-60'} rounded-xl p-3 items-center`;
+                    div.innerHTML = `
+                        <div class="mr-3"><input type="checkbox" class="w-5 h-5 text-indigo-600 rounded" ${w.selected ? 'checked' : ''} onchange="app.togglePreviewWord(${index})"></div>
+                        <div class="flex-grow flex flex-col">
+                            ${(w.bookName || w.levelName) ? `<div class="col-span-2 text-xs text-indigo-500 font-medium mb-1"><i class="fa-solid fa-folder-tree mr-1"></i>${w.bookName||'기본'} > ${w.levelName||'1단계'}</div>` : ''}
+                            <div class="grid grid-cols-2 gap-2">
+                                <input type="text" value="${w.en}" onchange="app.updatePreviewWord(${index}, 'en', this.value)" class="text-sm font-bold border-b border-gray-200 py-1 bg-transparent w-full outline-none">
+                                <input type="text" value="${w.ko}" onchange="app.updatePreviewWord(${index}, 'ko', this.value)" class="text-sm text-gray-700 border-b border-gray-200 py-1 bg-transparent w-full outline-none">
+                            </div>
+                        </div>
+                    `;
+                    list.appendChild(div);
+                });
+                countSpan.innerText = selectedCount;
+            },
+            togglePreviewWord(index) { this.state.previewWords[index].selected = !this.state.previewWords[index].selected; this.renderPreviewList(); },
+            updatePreviewWord(index, field, value) { this.state.previewWords[index][field] = value; },
+            
+            async savePreviewWords() {
+                const fallbackBookId = document.getElementById('preview-target-book')?.value;
+                const fallbackLevelId = document.getElementById('preview-target-level')?.value;
+                const wordsToSave = this.state.previewWords.filter(w => w.selected);
+                
+                if(wordsToSave.length === 0) return this.showMessage("알림", "선택된 단어가 없습니다.");
+
+                wordsToSave.forEach(w => {
+                    let targetBookId = fallbackBookId, targetLevelId = fallbackLevelId;
+                    
+                    if (w.bookName) {
+                        let book = this.localDB.books.find(b => b.title === w.bookName.trim());
+                        if (!book) { book = { id: this.generateId(), title: w.bookName.trim(), levels: [] }; this.localDB.books.push(book); }
+                        targetBookId = book.id;
+                        
+                        let lName = w.levelName ? w.levelName.trim() : "기본 단계";
+                        let level = book.levels.find(l => l.title === lName);
+                        if (!level) { level = { id: this.generateId(), title: lName, words: [] }; book.levels.push(level); }
+                        targetLevelId = level.id;
+                    }
+                    
+                    if (!targetBookId || !targetLevelId) {
+                        let book = this.localDB.books.find(b => b.title === "기본 단어장");
+                        if(!book) { book = { id: this.generateId(), title: "기본 단어장", levels: [] }; this.localDB.books.push(book); }
+                        targetBookId = book.id;
+                        
+                        let level = book.levels.find(l => l.title === "1단계");
+                        if(!level) { level = { id: this.generateId(), title: "1단계", words: [] }; book.levels.push(level); }
+                        targetLevelId = level.id;
+                    }
+
+                    const tBook = this.localDB.books.find(b => b.id === targetBookId);
+                    const tLevel = tBook ? tBook.levels.find(l => l.id === targetLevelId) : null;
+                    if (tLevel) tLevel.words.push({ id: this.generateId(), en: w.en.trim(), ko: w.ko.trim() });
+                });
+                
+                if(this.localDB.books.length > 0 && !this.state.activeBookId) {
+                    this.state.activeBookId = this.localDB.books[0].id;
+                    if(this.localDB.books[0].levels.length > 0) this.state.activeLevelId = this.localDB.books[0].levels[0].id;
+                }
+                
+                await this.saveData();
+                this.closePreviewModal();
+            },
+
+            renderTestSetup() {
+                const bookSel = document.getElementById('test-book-select');
+                bookSel.innerHTML = '';
+                
+                if(this.localDB.books.length === 0) {
+                    bookSel.innerHTML = '<option disabled selected>단어장이 없습니다.</option>';
+                    document.getElementById('test-level-select').innerHTML = '<option disabled>먼저 단어장을 만드세요.</option>';
+                    return;
+                }
+                
+                this.localDB.books.forEach(b => bookSel.options.add(new Option(b.title, b.id)));
+                
+                if (this.localDB.preferences && this.localDB.preferences.lastTestBookId) {
+                    if (this.localDB.books.some(b => b.id === this.localDB.preferences.lastTestBookId)) {
+                        bookSel.value = this.localDB.preferences.lastTestBookId;
+                    }
+                }
+                
+                this.renderTestLevelSelect();
+                
+                if (this.localDB.preferences && this.localDB.preferences.lastTestType) {
+                    const typeRadio = document.querySelector(`input[name="test-type"][value="${this.localDB.preferences.lastTestType}"]`);
+                    if (typeRadio) typeRadio.checked = true;
+                }
+            },
+            renderTestLevelSelect() {
+                const bookSel = document.getElementById('test-book-select');
+                const levelSel = document.getElementById('test-level-select');
+                levelSel.innerHTML = '<option value="all">전체 단계 (All)</option>';
+                
+                const book = this.localDB.books.find(b => b.id === bookSel.value);
+                if(book && book.levels) book.levels.forEach(l => levelSel.options.add(new Option(l.title, l.id)));
+                
+                if (this.localDB.preferences?.lastTestLevelId && this.localDB.preferences.lastTestBookId === bookSel.value) {
+                    if (this.localDB.preferences.lastTestLevelId === 'all' || (book && book.levels && book.levels.some(l => l.id === this.localDB.preferences.lastTestLevelId)))
+                        levelSel.value = this.localDB.preferences.lastTestLevelId;
+                }
+            },
+            saveTestPreferences() {
+                const bookId = document.getElementById('test-book-select').value;
+                const levelId = document.getElementById('test-level-select').value;
+                const typeEl = document.querySelector('input[name="test-type"]:checked');
+                
+                if(!this.localDB.preferences) this.localDB.preferences = {};
+                this.localDB.preferences.lastTestBookId = bookId;
+                this.localDB.preferences.lastTestLevelId = levelId;
+                this.localDB.preferences.lastTestType = typeEl ? typeEl.value : 'en2ko';
+                
+                this.saveData(); 
+            },
+            
+            startTest() {
+                const bookId = document.getElementById('test-book-select').value;
+                const levelId = document.getElementById('test-level-select').value;
+                const typeEl = document.querySelector('input[name="test-type"]:checked');
+                const testType = typeEl ? typeEl.value : 'en2ko';
+                
+                if(!bookId) return this.showMessage("오류", "단어장을 선택해주세요.");
+                
+                this.saveTestPreferences();
+                
+                const book = this.localDB.books.find(b => b.id === bookId);
+                if (!book) return;
+
+                let testWords = []; let scopeName = book.title;
+                
+                if(levelId === 'all') { 
+                    (book.levels || []).forEach(l => { if(l.words) testWords = testWords.concat(l.words); }); 
+                    scopeName += ' - 전체'; 
+                } 
+                else { 
+                    const l = (book.levels || []).find(l => l.id === levelId); 
+                    if(l && l.words) { testWords = [...l.words]; scopeName += ` - ${l.title}`; } 
+                }
+                
+                if(testWords.length === 0) return this.showMessage("알림", "단어가 없습니다.");
+                
+                testWords.sort(() => Math.random() - 0.5);
+                this.state.testSession = { scope: scopeName, type: testType, words: testWords, total: testWords.length, currentIndex: 0, correctCount: 0, wrongAnswers: [], startTime: new Date().toISOString() };
+                
+                this.switchView('test-run');
+                this.renderTestQuestion();
+            },
+            
+            renderTestQuestion() {
+                const s = this.state.testSession;
+                if (!s) return;
+                if(s.currentIndex >= s.total) return this.finishTest();
+                
+                const w = s.words[s.currentIndex];
+                const input = document.getElementById('test-answer-input');
+                const feedback = document.getElementById('test-feedback');
+                
+                input.value = ''; input.disabled = false; feedback.style.opacity = '0';
+                input.className = "block w-full p-4 text-xl text-center border-2 rounded-2xl bg-gray-50 focus:border-indigo-500 outline-none";
+                
+                document.getElementById('test-progress-text').innerText = `${s.currentIndex + 1} / ${s.total}`;
+                document.getElementById('test-score-live').innerText = `${s.correctCount}점`;
+                document.getElementById('test-progress-bar').style.width = `${(s.currentIndex / s.total) * 100}%`;
+                
+                let qType = s.type === 'mixed' ? (Math.random() > 0.5 ? 'en2ko' : 'ko2en') : s.type;
+                w.askType = qType;
+                
+                const typeBadge = document.getElementById('test-q-type-badge');
+                const qText = document.getElementById('test-question-text');
+                
+                if(qType === 'en2ko') {
+                    typeBadge.innerText = '뜻 맞추기 (ENG → KOR)'; typeBadge.className = "inline-block px-3 py-1 bg-blue-100 text-blue-800 text-xs font-bold rounded-full mb-4";
+                    qText.innerText = w.en; input.placeholder = "한국어 뜻 입력";
+                } else {
+                    typeBadge.innerText = '단어 맞추기 (KOR → ENG)'; typeBadge.className = "inline-block px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-full mb-4";
+                    qText.innerText = w.ko; input.placeholder = "영단어 입력";
+                }
+                setTimeout(() => input.focus(), 100);
+            },
+            submitTestAnswer(event) {
+                if(event) event.preventDefault();
+                const s = this.state.testSession; if(!s) return;
+                const input = document.getElementById('test-answer-input'); if(input.disabled) return;
+                
+                const w = s.words[s.currentIndex];
+                const userAns = input.value.trim().toLowerCase();
+                let isCorrect = false, correctAns = "";
+                
+                if(w.askType === 'en2ko') {
+                    correctAns = w.ko;
+                    const koAnswers = w.ko.split(/[,/]/).map(ans => ans.replace(/\s+/g, ''));
+                    isCorrect = koAnswers.includes(userAns.replace(/\s+/g, ''));
+                } else {
+                    correctAns = w.en.toLowerCase();
+                    isCorrect = userAns === correctAns;
+                }
+                
+                input.disabled = true;
+                const fb = document.getElementById('test-feedback');
+                
+                if(isCorrect) {
+                    s.correctCount++;
+                    input.className = "block w-full p-4 text-xl text-center border-2 border-emerald-500 bg-emerald-50 text-emerald-700 rounded-2xl outline-none";
+                    fb.innerHTML = '<i class="fa-solid fa-circle-check"></i> 정답입니다!'; fb.className = "h-8 mt-4 font-bold text-lg text-emerald-600 opacity-100";
+                } else {
+                    s.wrongAnswers.push({ en: w.en, ko: w.ko, askType: w.askType, userAnswer: userAns || "(빈 칸)", correctAnswer: correctAns });
+                    input.className = "block w-full p-4 text-xl text-center border-2 border-red-500 bg-red-50 text-red-700 rounded-2xl outline-none";
+                    fb.innerHTML = `<i class="fa-solid fa-circle-xmark"></i> 오답! 정답: ${correctAns}`; fb.className = "h-8 mt-4 font-bold text-lg text-red-600 opacity-100";
+                }
+                setTimeout(() => { s.currentIndex++; this.renderTestQuestion(); }, 1200);
+            },
+            skipTestAnswer() { document.getElementById('test-answer-input').value = ""; this.submitTestAnswer(null); },
+
+            async finishTest() {
+                const s = this.state.testSession;
+                const score = Math.round((s.correctCount / s.total) * 100);
+                const wordIds = s.words.map(w => w.id);
+                
+                const record = { id: this.generateId(), date: s.startTime, scope: s.scope, type: s.type, score: s.correctCount, total: s.total, percentage: score, wrongAnswers: s.wrongAnswers, testedWordIds: wordIds };
+                if (!this.localDB.records) this.localDB.records = [];
+                this.localDB.records.push(record);
+                await this.saveData();
+                
+                document.getElementById('result-scope').innerText = `${s.scope} (${s.total}문제)`;
+                const scoreEl = document.getElementById('result-score'); scoreEl.innerText = score;
+                scoreEl.parentElement.className = `mt-6 inline-flex items-center justify-center w-32 h-32 rounded-full border-4 shadow-inner ${score >= 90 ? 'border-emerald-400 bg-emerald-50 text-emerald-600' : (score >= 70 ? 'border-indigo-400 bg-indigo-50 text-indigo-600' : 'border-red-400 bg-red-50 text-red-600')}`;
+                
+                const list = document.getElementById('result-wrong-list');
+                const pMsg = document.getElementById('result-perfect-msg');
+                list.innerHTML = '';
+                
+                if(s.wrongAnswers.length === 0) { list.style.display = 'none'; pMsg.classList.remove('hidden'); } 
+                else {
+                    list.style.display = 'block'; pMsg.classList.add('hidden');
+                    s.wrongAnswers.forEach(w => {
+                        const div = document.createElement('div');
+                        div.className = "bg-red-50 border border-red-100 p-4 rounded-xl flex flex-col md:flex-row md:justify-between";
+                        div.innerHTML = `
+                            <div class="mb-2 md:mb-0"><span class="text-xs font-bold text-red-400 uppercase">Q. ${w.askType==='en2ko'?'영→한':'한→영'}</span><h4 class="text-lg font-bold mt-1">${w.askType==='en2ko'?w.en:w.ko}</h4></div>
+                            <div class="flex flex-col text-sm md:text-right"><span class="text-gray-500 line-through">나의 답: ${w.userAnswer}</span><span class="font-bold text-emerald-600 mt-1">정답: ${w.correctAnswer}</span></div>
+                        `;
+                        list.appendChild(div);
+                    });
+                }
+                this.switchView('test-result');
+                this.state.testSession = null;
+            },
+
+            renderStats() {
+                if (!this.localDB.records) this.localDB.records = [];
+                const records = this.localDB.records;
+                
+                const parseScope = (scope) => {
+                    const lastDashIdx = scope.lastIndexOf(' - ');
+                    if (lastDashIdx > -1) return { book: scope.substring(0, lastDashIdx), level: scope.substring(lastDashIdx + 3) };
+                    return { book: scope, level: '' };
+                };
+                
+                let totalScoreSum = 0;
+                let uniqueWordIds = new Set();
+                
+                records.forEach(r => {
+                    totalScoreSum += r.percentage;
+                    if(r.testedWordIds) {
+                        r.testedWordIds.forEach(id => {
+                            uniqueWordIds.add(r.scope + "_" + id);
+                        });
+                    }
+                });
+                
+                const totalTests = records.length;
+                const avgScore = totalTests > 0 ? Math.round(totalScoreSum / totalTests) : 0;
+                
+                document.getElementById('stat-total-tests').innerText = `${totalTests}회`;
+                document.getElementById('stat-avg-score').innerText = `${avgScore}점`;
+                document.getElementById('stat-total-words').innerText = `${uniqueWordIds.size}개`;
+                
+                const list = document.getElementById('stats-history-list');
+                const emptyMsg = document.getElementById('stats-empty-msg');
+                list.innerHTML = '';
+                
+                if(records.length === 0) {
+                    emptyMsg.classList.remove('hidden');
+                } else {
+                    emptyMsg.classList.add('hidden');
+                    const sortedRecords = [...records].sort((a, b) => new Date(b.date) - new Date(a.date));
+                    
+                    sortedRecords.forEach(r => {
+                        const tr = document.createElement('tr');
+                        tr.className = "bg-white border-b hover:bg-indigo-50 transition cursor-pointer group";
+                        tr.onclick = (e) => {
+                            if(!e.target.closest('button')) this.showHistoryWrongAnswers(r.id);
+                        };
+                        const dateStr = new Date(r.date).toLocaleString('ko-KR', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', hour12: false });
+                        const typeStr = r.type === 'en2ko' ? '영→한' : (r.type === 'ko2en' ? '한→영' : '혼합');
+                        const scopeDisplay = parseScope(r.scope).level || parseScope(r.scope).book;
+                        let scoreColor = r.percentage >= 90 ? 'text-emerald-600' : (r.percentage >= 70 ? 'text-indigo-600' : 'text-red-600');
+                        
+                        tr.innerHTML = `
+                            <td class="px-2 md:px-6 py-4 whitespace-nowrap text-xs font-medium text-gray-500">${dateStr}</td>
+                            <td class="px-2 md:px-6 py-4 font-bold text-gray-800 break-words">${scopeDisplay}</td>
+                            <td class="px-2 md:px-6 py-4 text-center whitespace-nowrap"><span class="bg-gray-100 text-gray-600 px-2 py-1 rounded text-xs">${typeStr}</span></td>
+                            <td class="px-2 md:px-6 py-4 text-center font-bold ${scoreColor} whitespace-nowrap">
+                                ${r.score} / ${r.total} <i class="fa-solid fa-chevron-right ml-2 text-gray-300 group-hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity"></i>
+                            </td>
+                        `;
+                        list.appendChild(tr);
+                    });
+                }
+            },
+            
+            showHistoryWrongAnswers(recordId) {
+                const record = this.localDB.records.find(r => r.id === recordId);
+                if(!record) return;
+                
+                let html = '<div class="space-y-2 max-h-60 overflow-y-auto text-left mb-4">';
+                if(record.wrongAnswers.length === 0) {
+                    html += '<div class="text-center py-4 text-emerald-600 font-bold">틀린 문제가 없습니다!</div>';
+                } else {
+                    record.wrongAnswers.forEach(w => { 
+                        html += `<div class="p-3 bg-red-50 border border-red-100 rounded text-sm"><div class="font-bold text-gray-800">Q. ${w.askType==='en2ko'?w.en:w.ko}</div><div class="text-gray-500 line-through">답: ${w.userAnswer}</div><div class="text-emerald-600 font-bold">정답: ${w.correctAnswer}</div></div>`; 
+                    });
+                }
+                html += '</div>';
+                
+                document.getElementById('msg-title').innerHTML = "상세 결과 확인";
+                document.getElementById('msg-content').innerHTML = html;
+                const modal = document.getElementById('message-modal');
+                const btn = document.getElementById('msg-btn');
+                
+                const btnContainer = document.getElementById('msg-btn-container');
+                btnContainer.className = "flex justify-between items-center"; // 양쪽 끝 정렬 적용
+                
+                const deleteBtn = document.createElement('button');
+                deleteBtn.innerHTML = '<i class="fa-solid fa-trash-can mr-1"></i>삭제';
+                deleteBtn.className = "text-red-500 hover:text-red-700 hover:bg-red-50 font-semibold py-2 px-6 rounded-lg transition-colors text-sm";
+                deleteBtn.onclick = () => {
+                    modal.classList.add('hidden');
+                    this.deleteRecord(recordId);
+                };
+                
+                btnContainer.innerHTML = '';
+                btnContainer.appendChild(deleteBtn);
+                
+                const newBtn = btn.cloneNode(true);
+                btnContainer.appendChild(newBtn);
+                
+                modal.classList.remove('hidden');
+                
+                newBtn.addEventListener('click', () => {
+                    modal.classList.add('hidden');
+                });
+            },
+            deleteRecord(id) {
+                this.showConfirm("기록 삭제", "이 시험 기록을 삭제하시겠습니까?", async () => {
+                    const recordToDel = this.localDB.records.find(r => r.id === id);
+                    this.localDB.records = this.localDB.records.filter(r => r.id !== id);
+                    await this.saveData();
+                    this.showUndoToast(`시험 기록이 삭제되었습니다.`, 'record', recordToDel);
+                });
+            },
+
+            createDemoData() {
+                if(this.localDB.books.length > 0) return;
+                const newBook = { id: this.generateId(), title: "기본 단어장", levels: [] };
+                newBook.levels.push({
+                    id: this.generateId(), title: "샘플 1단계", words: [
+                        { id: this.generateId(), en: "apple", ko: "사과" },
+                        { id: this.generateId(), en: "banana", ko: "바나나" }
+                    ]
+                });
+                this.localDB.books = [newBook];
+                this.saveData();
+            }
+        };
+
+        window.addEventListener('DOMContentLoaded', () => app.init());
+    </script>
+</body>
+</html>
